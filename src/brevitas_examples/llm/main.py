@@ -368,7 +368,8 @@ def quantize_llm(args, extra_args=None):
             model,
             calibration_loader,
             create_weight_orig=not args.disable_create_weight_orig,
-            alpha=args.magr_alpha)
+            alpha=args.magr_alpha,
+            buffer_device=args.gpxq_buffer_device)
         remove_hooks(model)
         print(f"MagR applied.")
 
@@ -590,6 +591,7 @@ def quantize_llm(args, extra_args=None):
                 use_quant_activations=args.gpxq_use_quant_activations,
                 create_weight_orig=not args.disable_create_weight_orig,
                 block_name=args.gpxq_block_name,
+                buffer_device=args.gpxq_buffer_device,
                 max_accumulator_bit_width=args.gpxq_max_accumulator_bit_width,
                 max_accumulator_tile_size=args.gpxq_max_accumulator_tile_size)
             print("GPTQ applied.")
@@ -601,6 +603,7 @@ def quantize_llm(args, extra_args=None):
                 calibration_loader,
                 act_order=args.gpxq_act_order,
                 block_name=args.gpxq_block_name,
+                buffer_device=args.gpxq_buffer_device,
                 max_accumulator_bit_width=args.gpxq_max_accumulator_bit_width,
                 max_accumulator_tile_size=args.gpxq_max_accumulator_tile_size)
             print("GPFQ applied.")
@@ -612,7 +615,8 @@ def quantize_llm(args, extra_args=None):
                 calibration_loader,
                 alpha=args.qronos_alpha,
                 act_order=args.gpxq_act_order,
-                block_name=args.gpxq_block_name)
+                block_name=args.gpxq_block_name,
+                buffer_device=args.gpxq_buffer_device)
             print("Qronos applied.")
 
         if args.bias_corr and not args.load_checkpoint:

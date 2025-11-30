@@ -9,7 +9,6 @@ import pprint
 import sys
 
 import numpy as np
-from optimum.exporters.onnx import onnx_export_from_model
 import torch
 from transformers import AutoModelForCausalLM
 from transformers import AutoTokenizer
@@ -59,6 +58,7 @@ from brevitas_examples.llm.llm_quant.ln_affine_merge import apply_layernorm_affi
 from brevitas_examples.llm.llm_quant.ln_affine_merge import apply_layernorm_to_rmsnorm
 from brevitas_examples.llm.llm_quant.ln_affine_merge import replace_rmsnorm_with_torch
 from brevitas_examples.llm.llm_quant.prepare_for_quantize import add_zero_bias_to_linear
+from brevitas_examples.llm.llm_quant.prepare_for_quantize import make_dynamo_compatible
 from brevitas_examples.llm.llm_quant.prepare_for_quantize import \
     replace_sdpa_with_quantizable_layers
 from brevitas_examples.llm.llm_quant.rotation_optimization import apply_rotation_optimization
@@ -89,9 +89,9 @@ def filter_results(results, tasks):
 
 
 def fused_rotation_no_fx(model, calibration_loader, args):
-    model.config.use_cache = False
     with torch.no_grad():
-        fx_model, guards = torch._dynamo.export(model)(**calibration_loader[0])
+        with make_dynamo_compatible(model) as dynamo_comp:
+            fx_model, guards = torch._dynamo.export(dynamo_comp.model)(**calibration_loader[0])
     if hasattr(model, str(torch.nn.functional.scaled_dot_product_attention)):
         m_to_add = getattr(model, str(torch.nn.functional.scaled_dot_product_attention))
         fx_model.add_module(str(torch.nn.functional.scaled_dot_product_attention), m_to_add)
@@ -147,6 +147,9 @@ def model_export(model, tokenizer, ref_input, args, config=None):
             sharded_weight_group_export
         sharded_weight_group_export(model, no_custom_packed_export=False)
     elif args.export_target == 'onnx_qcdq':
+        # Local import to allow for optional install
+        from optimum.exporters.onnx import onnx_export_from_model
+
         if args.weight_quant_granularity == 'per_group':
             export_manager = BlockQuantProxyLevelManager
         else:
@@ -284,7 +287,8 @@ def quantize_llm(args, extra_args=None):
 
     if require_fx:
         with torch.no_grad():
-            model, guards = torch._dynamo.export(model)(**calibration_loader[0])
+            with make_dynamo_compatible(model) as dynamo_comp:
+                model, guards = torch._dynamo.export(dynamo_comp.model)(**calibration_loader[0])
         # Blockwise optimization does not work with FX at the moment
         args.gpxq_block_name = None
     model.eval()

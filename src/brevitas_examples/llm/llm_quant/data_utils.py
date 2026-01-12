@@ -26,6 +26,8 @@ SOFTWARE.
 
 import random
 from typing import Any
+from typing import Callable
+from typing import Dict
 from typing import Iterable
 from typing import List
 from typing import Optional
@@ -35,6 +37,7 @@ import warnings
 import numpy as np
 from optimum.utils.normalized_config import NormalizedConfigManager
 import torch
+from torch.utils.data import DataLoader
 from transformers import AutoConfig
 
 from brevitas_examples.llm.llm_quant.data import get_clm_dataset
@@ -163,5 +166,21 @@ def get_dataset_for_model(
             ) for _ in range(num_layers))
 
     data = DatasetToDevice(data, device=device)
-
     return data
+
+
+def collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
+    kwargs = {}
+    for curr_dict in batch:
+        for key, value in curr_dict.items():
+            if isinstance(value, torch.Tensor):
+                if key not in kwargs:
+                    kwargs[key] = []
+                kwargs[key].append(value)
+            else:
+                if key not in kwargs:
+                    kwargs[key] = value
+    for key, value in kwargs.items():
+        if isinstance(value, list) and len(value) > 0:
+            kwargs[key] = torch.cat(kwargs[key], dim=0)
+    return kwargs

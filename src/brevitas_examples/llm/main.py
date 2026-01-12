@@ -7,9 +7,11 @@ import functools
 import os
 import pprint
 import sys
+import warnings
 
 import numpy as np
 import torch
+from torch.utils.data import DataLoader
 from transformers import AutoModelForCausalLM
 from transformers import AutoTokenizer
 
@@ -40,6 +42,7 @@ from brevitas_examples.llm.llm_args import validate
 from brevitas_examples.llm.llm_quant.awq.pre_quant import apply_awq
 from brevitas_examples.llm.llm_quant.bias_corr import apply_bias_correction
 from brevitas_examples.llm.llm_quant.calibrate import apply_calibration
+from brevitas_examples.llm.llm_quant.data_utils import collate_fn
 from brevitas_examples.llm.llm_quant.data_utils import get_dataset_for_model
 from brevitas_examples.llm.llm_quant.equalize import apply_act_equalization
 from brevitas_examples.llm.llm_quant.equalize import apply_weight_equalization
@@ -92,7 +95,7 @@ def fused_rotation_no_fx(model, calibration_loader, args):
     with torch.no_grad(), rmsnorm_patch(model, model.config) as patcher:
         rmsnorm_classes = patcher.rmsnorm_classes
         with make_dynamo_compatible(model) as dynamo_comp:
-            fx_model, guards = torch._dynamo.export(dynamo_comp.model)(**calibration_loader[0])
+            fx_model, guards = torch._dynamo.export(dynamo_comp.model)(**next(iter(calibration_loader)))
     if hasattr(model, str(torch.nn.functional.scaled_dot_product_attention)):
         m_to_add = getattr(model, str(torch.nn.functional.scaled_dot_product_attention))
         fx_model.add_module(str(torch.nn.functional.scaled_dot_product_attention), m_to_add)
@@ -199,7 +202,7 @@ def model_export(model, tokenizer, ref_input, args, config=None):
 
 
 def fx_required(args):
-    return True if args.weight_equalization or args.act_equalization == 'fx' or args.rotation == 'fx' or args.ln_affine_merge or args.convert_layernorm_to_rmsnorm or args.quant_sdpa == 'fx' else False
+    return args.weight_equalization or args.act_equalization == 'fx' or args.rotation == 'fx' or args.ln_affine_merge or args.convert_layernorm_to_rmsnorm or args.quant_sdpa == 'fx'
 
 
 # Recursive function to unwrap equalized layers
@@ -232,9 +235,13 @@ def quantize_llm(args, extra_args=None):
     quant_ppl = None
 
     require_fx = fx_required(args)
+    if require_fx and args.calibration_batch_size > 1:
+        warnings.warn(
+            f"The provided configuration requires fx and has a batch size of {args.calibration_batch_size}.\nErrors may occur when using fx and batch_size > 1.\nIf you experience any issues try chaning the configuration to avoid using fx or to set the batch_size to 1."
+        )
 
     # Load the data for calibration and evaluation.
-    calibration_loader = get_dataset_for_model(
+    calibration_dataset = get_dataset_for_model(
         args.model,
         bos_preprocessing=args.bos_preprocessing,
         dataset_name=args.dataset,
@@ -246,7 +253,11 @@ def quantize_llm(args, extra_args=None):
         require_fx=require_fx and args.export_target is not None,
         device=None)
 
-    validation_loader = get_dataset_for_model(
+    # Batched data loader to accelerate GPXQ algorithms
+    calibration_loader = DataLoader(
+        dataset=calibration_dataset, batch_size=args.calibration_batch_size, collate_fn=collate_fn)
+
+    validation_dataset = get_dataset_for_model(
         args.model,
         bos_preprocessing=args.bos_preprocessing,
         dataset_name=args.dataset,
@@ -262,7 +273,7 @@ def quantize_llm(args, extra_args=None):
         # Extra arguments should be used as training arguments for rotation optimization
         rot_optimization_args = parse_rotation_optimization_args(extra_args=extra_args)
         # Load the data for rotation optimization
-        rot_calibration_loader = get_dataset_for_model(
+        rot_calibration_dataset = get_dataset_for_model(
             args.model,
             bos_preprocessing=args.bos_preprocessing,
             dataset_name=args.dataset,
@@ -281,7 +292,7 @@ def quantize_llm(args, extra_args=None):
         print("Float model eval...")
         model = offload_model(model)
         float_ppl = compute_perplexity(
-            model, validation_loader, context_length=args.seqlen // 2, tokenizer=tokenizer)
+            model, validation_dataset, context_length=args.seqlen // 2, tokenizer=tokenizer)
         remove_hooks(model)
         print(f"Float perplexity ({args.dataset}): {float_ppl:.3f}")
 
@@ -290,7 +301,7 @@ def quantize_llm(args, extra_args=None):
         with torch.no_grad(), rmsnorm_patch(model, model.config, enabled=args.replace_rmsnorm) as patcher:
             rmsnorm_classes = patcher.rmsnorm_classes
             with make_dynamo_compatible(model) as dynamo_comp:
-                model, guards = torch._dynamo.export(dynamo_comp.model)(**calibration_loader[0])
+                model, guards = torch._dynamo.export(model)(**next(iter(calibration_loader)))
         # Blockwise optimization does not work with FX at the moment
         args.gpxq_block_name = None
     model.eval()
@@ -317,7 +328,7 @@ def quantize_llm(args, extra_args=None):
         print("Inserting SDPA quantizable module")
         model = offload_model(model)
         with torch.no_grad(), functional_quantization_mode(model, {torch.nn.functional.scaled_dot_product_attention: ScaledDotProductAttention}):
-            model(**calibration_loader[0])
+            model(**next(iter(calibration_loader)))
         remove_hooks(model)
     elif args.quant_sdpa == 'eager':
         model = replace_sdpa_with_quantizable_layers(
@@ -365,7 +376,7 @@ def quantize_llm(args, extra_args=None):
         offload_model(model)
         print(f"Apply act equalization (SmoothQuant) with alpha {args.act_equalization_alpha}")
         if args.load_checkpoint:
-            loader = [calibration_loader[0]]
+            loader = [next(iter(calibration_loader))]
         else:
             loader = calibration_loader
         apply_act_equalization(
@@ -479,7 +490,7 @@ def quantize_llm(args, extra_args=None):
         apply_awq(
             model=model,
             tokenizer=tokenizer,
-            calibration_loader=calibration_loader,
+            calibration_dataset=calibration_dataset,
             args=args,
             auto_scale=args.awq_scale,
             mse_range=args.awq_clip,
@@ -522,7 +533,7 @@ def quantize_llm(args, extra_args=None):
     with quantization_cm:
         # We initialize weights scale factor
         with torch.no_grad():
-            model(**calibration_loader[0])
+            model(**next(iter(calibration_loader)))
 
         if args.compile_ptq:
             for m in model.modules():
@@ -540,7 +551,7 @@ def quantize_llm(args, extra_args=None):
             apply_rotation_optimization(
                 model=model,
                 tokenizer=tokenizer,
-                train_dataset=rot_calibration_loader,
+                train_dataset=rot_calibration_dataset,
                 training_args=rot_optimization_args,
             )
             # Remove hooks from optimization
@@ -561,18 +572,19 @@ def quantize_llm(args, extra_args=None):
                 dtype=torch.float32)
             model = offload_model(model)
             with torch.no_grad():
-                model(**calibration_loader[0])
+                model(**next(iter(calibration_loader)))
             print("SVDQuant applied.")
 
         if args.learned_round:
             print("Applying learned round...")
             if args.load_checkpoint:
                 iters = 1
-                loader = [calibration_loader[0]]
+                loader = [calibration_dataset[0]]
             else:
                 iters = args.learned_round_iters
-                loader = calibration_loader
+                loader = calibration_dataset
             remove_hooks(model)
+            # TODO (pml): Fix learned round type hints
             apply_learned_round(
                 model,
                 loader,
@@ -650,18 +662,17 @@ def quantize_llm(args, extra_args=None):
         if args.eval and not args.no_quantize:
             print("Model eval...")
             with torch.no_grad(), quant_inference_mode(model, compile=args.compile_eval):
-                model(**calibration_loader[0])
+                model(**next(iter(calibration_loader)))
                 quant_ppl = compute_perplexity(
-                    model, validation_loader, context_length=args.seqlen // 2, tokenizer=tokenizer)
+                    model, validation_dataset, context_length=args.seqlen // 2, tokenizer=tokenizer)
             print(f"Quantized perplexity ({args.dataset}): {quant_ppl:.3f}")
         few_shot_eval_results = dict()
         if args.few_shot_eval == 'lm_eval':
             from lm_eval import evaluator
             from lm_eval.models.huggingface import HFLM
             with torch.no_grad(), quant_inference_mode(model, compile=args.compile_eval):
-                model(**calibration_loader[0])
+                model(**next(iter(calibration_loader)))
                 batch_size = 'auto' if args.few_shot_override_batch_size is None else args.few_shot_override_batch_size
-
                 wrapped_model = HFLM(
                     pretrained=model, add_bos_token=True,
                     batch_size=batch_size)  # need to wrap for LLM eval
@@ -681,7 +692,7 @@ def quantize_llm(args, extra_args=None):
         elif args.few_shot_eval == 'lighteval':
 
             with torch.no_grad(), quant_inference_mode(model, compile=args.compile_eval):
-                model(**calibration_loader[0])
+                model(**next(iter(calibration_loader)))
                 remove_hooks(model)
 
                 from brevitas_examples.llm.eval_lighteval import run_lighteval
@@ -703,7 +714,7 @@ def quantize_llm(args, extra_args=None):
             print(f"Export to {args.export_target}")
             # Currently we always export with a float32 container to avoid float16 CPU errors
             model = model.to(dtype=torch.float32)
-            model_export(model, tokenizer, calibration_loader[0], args, config)
+            model_export(model, tokenizer, next(iter(calibration_loader)), args, config)
 
     return {"float_ppl": float_ppl, "quant_ppl": quant_ppl, **few_shot_eval_results}, model
 

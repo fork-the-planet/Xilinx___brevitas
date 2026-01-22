@@ -34,6 +34,13 @@ class TrainingArguments(transformers.TrainingArguments):
     # from a checkpoint, so related files are not save by default
     save_strategy: Optional[str] = field(default="no")
 
+    ### Optimizer args
+    optimizer_dtype: Optional[str] = field(
+        default=None,
+        metadata={
+            "help":
+                "Data type for CaileySGD optimizer computations. None means use parameter dtype."})
+
     ### Distillation Loss args
     use_distillation_loss: bool = field(
         default=False, metadata={"help": "Whether to compute the distillation loss."})
@@ -179,7 +186,11 @@ def apply_rotation_optimization(
     trainable_rotations = extract_trainable_rotation_matrices(model)
     for rot_mat in trainable_rotations:
         rot_mat.requires_grad = True
-    optimizer = CaileySGD(trainable_rotations, lr=training_args.learning_rate, stiefel=True)
+    optimizer = CaileySGD(
+        trainable_rotations,
+        lr=training_args.learning_rate,
+        stiefel=True,
+        dtype=training_args.optimizer_dtype)
     trainer = GeneralizedTrainer(
         model=model,
         tokenizer=tokenizer,

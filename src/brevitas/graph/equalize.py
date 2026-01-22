@@ -1564,13 +1564,64 @@ def random_orthogonal_matrix(size):
     return q
 
 
+def _compute_hidden_dim(
+        region: Region,
+        block_rotation_dim: Optional[int] = None,
+        insert_rotation_module: bool = False,
+        disable_block_rotation_for_fused: bool = False,
+        expansion_step: int = 1) -> int:
+    """
+    Compute the hidden dimension for rotation per region.
+
+    Since each region may have a different shape and block rotation compatibility,
+    this calculation must be performed on a per-region basis. The order of operations
+    is: (1) initialize from region, (2) expand if needed, (3) apply block rotation.
+
+    Args:
+        region: The region for which to compute hidden dimension.
+        block_rotation_dim: Optional block rotation dimension for block-wise rotations.
+        insert_rotation_module: Whether this region is an orphan sink (online rotation).
+        disable_block_rotation_for_fused: Whether to disable block rotation for fused rotations.
+        expansion_step: Number of steps for finding closest hadamard number (used for expansion).
+
+    Returns:
+        The computed hidden dimension for the region.
+    """
+    # Step 1: Initialize hidden_dim to the max shape of the sinks
+    hidden_dim = region.max_shape_sinks
+
+    # Step 2: Expand if region requires expansion
+    if region.expand_region:
+        hidden_dim = find_closest_hadamard_number(hidden_dim, steps=expansion_step)
+
+    # Step 3: Apply block rotation if applicable
+    apply_block_rotation = block_rotation_dim is not None
+
+    # insert_rotation_module is True for orphan sinks (aka online rotations). Sometimes we want to use
+    # block rotations only for online rotations and full-vector for fused rotations.
+    if not insert_rotation_module and disable_block_rotation_for_fused:
+        apply_block_rotation = False
+
+    if apply_block_rotation:
+        # Check block_rotation is compatible with the current shape
+        if (hidden_dim // block_rotation_dim > 1) and (hidden_dim % block_rotation_dim == 0):
+            hidden_dim = block_rotation_dim
+        else:
+            logging.info(
+                f"Block rotation shape is not compatible with hidden_dim={hidden_dim}."
+                " Falling back to full-vector rotation.")
+
+    return hidden_dim
+
+
 def _compute_rotations(
         model: nn.Module,
         regions: List[Region],
         full_rotation_method='had',
         fuse_rotations: bool = True,
         expansion_step: int = 1,
-        block_rotation_dim: Optional[int] = None):
+        block_rotation_dim: Optional[int] = None,
+        disable_block_rotation_for_fused: bool = False):
 
     rewriters = []
     # First, rotations on orphan sinks are applied so the order in which rotations are
@@ -1589,9 +1640,22 @@ def _compute_rotations(
             assert not region.expand_region, "Orthogonal rotation not compatible with expansion"
             assert block_rotation_dim is None, "Orthogonal rotation not compatible with blockwise rotation"
 
-        # Initialize variables
-        hidden_dim = region.max_shape_sinks
-        expanded_hidden_dim, expanded_rot_mat, expanded_K = None, None, None
+        # Compute hidden_dim per region (includes expansion if applicable)
+        hidden_dim = _compute_hidden_dim(
+            region=region,
+            block_rotation_dim=block_rotation_dim,
+            insert_rotation_module=insert_rotation_module,
+            disable_block_rotation_for_fused=disable_block_rotation_for_fused,
+            expansion_step=expansion_step)
+
+        # NOTE: We need to compute expanded_hidden_dim separately for weight padding in expansion
+        # regions. This is required for proper interop of block rotations and expansion: the weight
+        # must be padded to the expanded dimension before block reduction, but hidden_dim may have
+        # been reduced by block rotation for the parametrizations and rotation matrices.
+        if region.expand_region:
+            expanded_hidden_dim = find_closest_hadamard_number(
+                region.max_shape_sinks, steps=expansion_step)
+
         if not insert_rotation_module and full_rotation_method == 'ort':
             rot_mat = random_orthogonal_matrix(hidden_dim)
             rot_func = _apply_ort_device
@@ -1606,8 +1670,6 @@ def _compute_rotations(
             try:
                 # Build hadamard rotation matrix
                 rot_mat, K = get_hadK(hidden_dim)
-                expanded_hidden_dim = find_closest_hadamard_number(hidden_dim, steps=expansion_step)
-                expanded_rot_mat, expanded_K = get_hadK(int(expanded_hidden_dim))
                 rot_func = _apply_had_device
             except AssertionError as e:
                 logging.info(f"Incompatible dim {hidden_dim} for hadamard rotation")
@@ -1618,22 +1680,6 @@ def _compute_rotations(
                 else:
                     logging.info("Skipping region")
                     continue
-
-        hidden_dim = hidden_dim if not region.expand_region else expanded_hidden_dim
-        # Check if we are doing block_rotation and if it is compatible with the current shape
-        if block_rotation_dim is not None:
-            if hidden_dim // block_rotation_dim > 1 and hidden_dim % block_rotation_dim == 0:
-                hidden_dim = block_rotation_dim
-                rot_mat, K = get_hadK(block_rotation_dim)
-                if region.expand_region:
-                    expanded_rot_mat, expanded_K = rot_mat, K
-            else:
-                logging.info(
-                    "Block rotation shape is not compatible with the region shape, perfoming normal rotations"
-                )
-
-        if region.expand_region:
-            rot_mat, K = expanded_rot_mat, expanded_K
 
         # Cast rotation matrix to the weight dtype
         if rot_mat is not None:
@@ -1896,6 +1942,7 @@ class GraphRotationEqualization(RotationEqualization, RegionWalkMixin):
             use_parametrized_rotations: bool = False,
             full_rotation_method: str = 'had',
             block_rotation_dim: Optional[int] = None,
+            disable_block_rotation_for_fused: bool = False,
             layers_to_expand: Optional[List[str]] = None,
             expansion_step: int = None,
             delay_rewriters: bool = False,
@@ -1921,6 +1968,7 @@ class GraphRotationEqualization(RotationEqualization, RegionWalkMixin):
         self.expansion_step = expansion_step
         self.delay_rewriters = delay_rewriters
         self.block_rotation_dim = block_rotation_dim
+        self.disable_block_rotation_for_fused = disable_block_rotation_for_fused
 
         if self.delay_rewriters:
             assert return_rewriters, "If `delay_rewriters=True`, rewriters are not applied immediately. Therefore, these must be returned, by setting `return_rewriters=True`, to be applied at a later stage."
@@ -2098,7 +2146,8 @@ class GraphRotationEqualization(RotationEqualization, RegionWalkMixin):
                     self.full_rotation_method,
                     fuse_rotations=not self.use_parametrized_rotations,
                     expansion_step=first_exp_step,
-                    block_rotation_dim=self.block_rotation_dim))
+                    block_rotation_dim=self.block_rotation_dim,
+                    disable_block_rotation_for_fused=self.disable_block_rotation_for_fused))
             rewriters.extend(
                 _compute_rotations(
                     graph_model,
@@ -2106,7 +2155,8 @@ class GraphRotationEqualization(RotationEqualization, RegionWalkMixin):
                     self.full_rotation_method,
                     fuse_rotations=not self.use_parametrized_rotations,
                     expansion_step=second_exp_step,
-                    block_rotation_dim=self.block_rotation_dim))
+                    block_rotation_dim=self.block_rotation_dim,
+                    disable_block_rotation_for_fused=self.disable_block_rotation_for_fused))
             if len(expanded_regions) > 0:
                 parameter_number_post = 0
                 for m in graph_model.parameters():

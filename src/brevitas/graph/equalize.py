@@ -39,7 +39,6 @@ from brevitas.graph.base import ModuleInstanceWrapModule
 from brevitas.graph.base import Transform
 from brevitas.graph.hadamard import find_closest_hadamard_number
 from brevitas.graph.hadamard import get_hadK
-from brevitas.graph.hadamard import is_pow2
 from brevitas.graph.hadamard import matmul_hadU
 from brevitas.graph.hadamard import matmul_hadU_cuda
 from brevitas.graph.hadamard import random_hadamard_matrix
@@ -48,7 +47,6 @@ from brevitas.graph.utils import get_node
 from brevitas.nn import ScaledDotProductAttention
 from brevitas.nn.equalized_layer import EqualizedModule
 from brevitas.nn.equalized_layer import functional_rotate_input
-from brevitas.nn.equalized_layer import INPUT_NAMES
 from brevitas.nn.equalized_layer import RotatedModule
 from brevitas.nn.quant_scale_bias import ScaleBias
 from brevitas.proxy import BiasQuantProxyFromInjectorBase
@@ -720,6 +718,18 @@ class EqualizationSourceWrapper(EqualizationModuleWrapper):
 
         return cls(module, weight_axis, act_axis, indexes)
 
+    def permute(self, permute_index):
+        self.module.weight.data = torch.index_select(
+            self.module.weight.data, self.weight_axis, permute_index.to(self.module.weight.device))
+        if hasattr(self.module, self._bias_tensor_name):
+            bias = getattr(self.module, self._bias_tensor_name)
+            # hasattr returns true if bias=None
+            if bias is not None:
+                bias.data = torch.index_select(
+                    self.module.bias.data,
+                    self.weight_axis,
+                    permute_index.to(self.module.bias.device))
+
 
 class EqualizationSinkWrapper(EqualizationModuleWrapper):
 
@@ -759,6 +769,10 @@ class EqualizationSinkWrapper(EqualizationModuleWrapper):
         else:
             weight_tensor_name = "weight"
         return cls(module, weight_axis, act_axis, indexes, weight_tensor_name)
+
+    def permute(self, permute_index):
+        self.module.weight.data = torch.index_select(
+            self.module.weight.data, self.weight_axis, permute_index.to(self.module.weight.device))
 
 
 # When fuse_scaling = False, the scaling parameters are instances of nn.Parameter,
@@ -1286,25 +1300,11 @@ class ActivationEqualization(GraphTransform, ABC):
         return mul_factor
 
     def forward_stats_hook(self, module, *args, name, batch_dim=0, use_inp=True, **kwargs):
-        # Check for MHA Cross attention, and if found, skip it
-        # When using hf/accelerate, we need to check the signature of the original forward
-        forward_to_check = module._old_forward if hasattr(
-            module, '_old_forward') else module.forward
-        kwargs.update(zip(forward_to_check.__code__.co_varnames[1:], args[:-1]))
-        if 'query' in kwargs and 'key' in kwargs and 'value' in kwargs:
-            if kwargs['query'].data_ptr() != kwargs['key'].data_ptr() != kwargs['value'].data_ptr():
-                self.float_act_map[name] = None
-                return
+        x, batch_dim = self._process_input(module, args, kwargs, batch_dim, use_inp)
 
-        input_kwarg = [x for x in kwargs.keys() if x in INPUT_NAMES][0]
-        if use_inp:
-            x = kwargs[input_kwarg]
-        elif not use_inp:
-            x = args[-1]
-
-        # Extra check for batch_dim
-        if hasattr(x, 'names') and 'N' in x.names:
-            batch_dim = x.names.index('N')
+        if x is None:
+            self.float_act_map[name] = None
+            return
 
         self.batch_dim_act_map[name] = batch_dim
 
@@ -1973,11 +1973,12 @@ class GraphRotationEqualization(RotationEqualization, RegionWalkMixin):
         self.delay_rewriters = delay_rewriters
         self.block_rotation_dim = block_rotation_dim
         self.disable_block_rotation_for_fused = disable_block_rotation_for_fused
+        self.regions = []
 
         if self.delay_rewriters:
             assert return_rewriters, "If `delay_rewriters=True`, rewriters are not applied immediately. Therefore, these must be returned, by setting `return_rewriters=True`, to be applied at a later stage."
         if use_parametrized_rotations:
-            # NOTE: When use_parametrized_rotations=False, parametrized rotations are applied. This changes the attribute __class__
+            # NOTE: When use_parametrized_rotations=True, parametrized rotations are applied. This changes the attribute __class__
             # of the parametrized module, e.g. to"<class 'torch.nn.utils.parametrize.ParametrizedLinear'>".
             # Therefore, algorithms that do type checking might need to use type_before_parametrizations(module),
             # instead of only type(module) (see layerwise_layer_handler). Algorithms that rely on in-place modifications
@@ -1987,6 +1988,10 @@ class GraphRotationEqualization(RotationEqualization, RegionWalkMixin):
                 "Using parametrized results might break type-checking, which could lead to unexpected behaviour."
             )
         self.use_parametrized_rotations = use_parametrized_rotations
+
+    def get_regions(self) -> List[Region]:
+        """Return the list of regions identified during graph rotation equalization."""
+        return self.regions
 
     def rotate_matmuls(self, graph_module):
         matmul_nodes = list(graph_module.graph.nodes)
@@ -2081,7 +2086,7 @@ class GraphRotationEqualization(RotationEqualization, RegionWalkMixin):
     def apply(self,
               graph_model: GraphModule) -> Union[Tuple[GraphModule, List[Transform]], GraphModule]:
         rewriters = []
-        regions = _extract_regions(graph_model, state_impl_kwargs=self.full_state_kwargs)
+        self.regions = _extract_regions(graph_model, state_impl_kwargs=self.full_state_kwargs)
 
         expanded_regions = []
         self.find_module_by_name(graph_model, expanded_regions)
@@ -2104,11 +2109,11 @@ class GraphRotationEqualization(RotationEqualization, RegionWalkMixin):
 
         if self.sdpa_regions:
             sdpa_regions = self.rotate_sdpa(graph_model)
-            regions.extend(sdpa_regions)
+            self.regions.extend(sdpa_regions)
 
-        logging.debug(f"Applying GraphRotationEqualization on {len(regions)} regions")
+        logging.debug(f"Applying GraphRotationEqualization on {len(self.regions)} regions")
 
-        for r in regions:
+        for r in self.regions:
             id_list = [id(r.name_to_module[sink_name]) for sink_name in r.sinks_names]
             eq_layers.update(id_list)
 
@@ -2128,21 +2133,21 @@ class GraphRotationEqualization(RotationEqualization, RegionWalkMixin):
             # Layerwise have only a single sink named 'sinks0'
             id_sink = id(o_r.get_module_from_name('sinks0'))
             if id_sink not in eq_layers:
-                regions.append(o_r)
+                self.regions.append(o_r)
                 added_regions += 1
         logging.debug(f"Adding {added_regions} sink-only regions")
 
         if overlap:
             assert not self.use_parametrized_rotations, "Overlap between expanded and optimized region not supported"
-            first_set, second_set = regions, expanded_regions
+            first_set, second_set = self.regions, expanded_regions
             first_exp_step, second_exp_step = 1, self.expansion_step
         else:
-            first_set, second_set = expanded_regions, regions
+            first_set, second_set = expanded_regions, self.regions
             first_exp_step, second_exp_step = self.expansion_step, 1
 
         if self.rotate_matmul:
             self.rotate_matmuls(graph_model)
-        if len(regions) > 0:
+        if len(self.regions) > 0:
             rewriters.extend(
                 _compute_rotations(
                     graph_model,

@@ -164,13 +164,20 @@ class LLMPerplexityCases:
                 "rotation": "fx",
                 "float_ppl": 50467.9575,
                 "quant_ppl": 50464.0117},
+            {
+                "model": "hf-internal-testing/tiny-random-LlamaForCausalLM",
+                "weight_bit_width": 2,
+                "weight_scale_precision": "signed_float_scale",
+                "float_ppl": 32428.475,
+                "quant_ppl": 32523.836},
         ],
         ids=[
         "llama",
         "llama_float_dynamic_input",
         "mistral",
         "opt-quant-sdpa",
-        "rotation_fx_and_gptq"
+        "rotation_fx_and_gptq",
+        "llama_signed_scale",
         ],)
     def case_small_models_with_ppl(self, run_dict, default_run_args, request):
         yield process_args_and_metrics(default_run_args, run_dict, extra_keys=LLMPerplexityCases.METRICS)
@@ -426,6 +433,31 @@ class LLMQuantLayerTypeCases:
             "exp_layer_types": {
                 "model.layers.0.self_attn.q_proj.weight_quant.tensor_quant.scaling_impl.parameter_list_stats.stats.stats_impl":
                     "<class 'brevitas.core.stats.stats_op.MSE'>",},},
+        {
+            "model": "hf-internal-testing/tiny-random-MistralForCausalLM",
+            "weight_quant_format": "float_ocp_e4m3",
+            "weight_quant_type": "sym",
+            "weight_scale_precision": "signed_float_scale",
+            "input_quant_format": "float_ocp_e5m2",
+            "input_quant_type": "sym",
+            "input_scale_precision": "signed_float_scale",
+            "exp_layer_types": {
+                "model.layers.0.self_attn.q_proj":
+                    "<class 'brevitas.nn.quant_linear.QuantLinear'>",
+                "model.layers.0.self_attn.q_proj.input_quant.fused_activation_quant_proxy.tensor_quant":
+                    "<class 'brevitas.core.quant.float.FloatQuant'>",
+                "model.layers.0.self_attn.q_proj.input_quant.fused_activation_quant_proxy.tensor_quant.scaling_impl.stats.stats_impl":
+                    "<class 'brevitas.core.stats.stats_op.SignedAbsMax'>",
+                "model.layers.0.self_attn.q_proj.input_quant.fused_activation_quant_proxy.tensor_quant.scaling_impl.restrict_scaling.restrict_value_impl":
+                    "<class 'brevitas.core.restrict_val.SignedFloatRestrictValue'>",
+                "model.layers.0.self_attn.q_proj.weight_quant.tensor_quant":
+                    "<class 'brevitas.core.quant.float.FloatQuant'>",
+                "model.layers.0.self_attn.q_proj.weight_quant.tensor_quant.scaling_impl.parameter_list_stats.stats.stats_impl":
+                    "<class 'brevitas.core.stats.stats_op.SignedAbsMax'>",
+                "model.layers.0.self_attn.q_proj.weight_quant.tensor_quant.scaling_impl.stats_scaling_impl.restrict_clamp_scaling.restrict_value_impl":
+                    "<class 'brevitas.core.restrict_val.SignedFloatRestrictValue'>",
+                },
+            },
         ],
         ids=[
             "mistral-int8",
@@ -438,7 +470,9 @@ class LLMQuantLayerTypeCases:
             "mistral-int8-quant-last-layer",
             "llama-int8-svd_quant",
             "opt-quant-sdpa",
-            "llama-mxfp8-mse"],)
+            "llama-mxfp8-mse",
+            "mistral-fp8_ocp-signed",
+        ],)
     def case_small_models_quant_layer(self, run_dict, default_run_args, request):
         yield process_args_and_metrics(default_run_args, run_dict, extra_keys=["exp_layer_types"])
 

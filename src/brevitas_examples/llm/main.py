@@ -37,7 +37,6 @@ from brevitas_examples.common.accelerate_utils.accelerate import remove_hooks
 from brevitas_examples.common.accelerate_utils.accelerate import update_internal_dict
 from brevitas_examples.common.generative.quantize import generate_quant_maps
 from brevitas_examples.common.generative.quantize import generate_quantizers
-from brevitas_examples.common.generative.quantizers import QuantInjector
 from brevitas_examples.common.generative.quantizers import QUANTIZERS_REGISTRY
 from brevitas_examples.common.parse_utils import override_defaults
 from brevitas_examples.common.parse_utils import parse_args
@@ -48,8 +47,8 @@ from brevitas_examples.llm.llm_args import validate
 from brevitas_examples.llm.llm_quant.awq.pre_quant import apply_awq
 from brevitas_examples.llm.llm_quant.bias_corr import apply_bias_correction
 from brevitas_examples.llm.llm_quant.calibrate import apply_calibration
-from brevitas_examples.llm.llm_quant.data_utils import collate_fn
 from brevitas_examples.llm.llm_quant.data_utils import get_dataset_for_model
+from brevitas_examples.llm.llm_quant.data_utils import llm_collate
 from brevitas_examples.llm.llm_quant.equalize import apply_act_equalization
 from brevitas_examples.llm.llm_quant.equalize import apply_weight_equalization
 from brevitas_examples.llm.llm_quant.eval import compute_perplexity
@@ -292,34 +291,30 @@ def quantize_llm(args, extra_args=None):
             f"The provided configuration requires fx and has a batch size of {args.calibration_batch_size}.\nErrors may occur when using fx and batch_size > 1.\nIf you experience any issues try chaning the configuration to avoid using fx or to set the batch_size to 1."
         )
 
+    collate_fn = llm_collate(
+        model_name_or_path=args.model, require_fx=require_fx and args.export_target is not None)
+
     # Load the data for calibration and evaluation.
     calibration_dataset = get_dataset_for_model(
-        args.model,
         bos_preprocessing=args.bos_preprocessing,
         dataset_name=args.dataset,
         tokenizer=tokenizer,
         nsamples=args.nsamples,
         seqlen=args.seqlen,
         split="train",
-        seed=args.seed,
-        require_fx=require_fx and args.export_target is not None,
-        device=None)
-
-    # Batched data loader to accelerate data-aware algorithms
+        seed=args.seed)
+    # Batched data loader to accelerate GPXQ algorithms
     calibration_loader = DataLoader(
         dataset=calibration_dataset, batch_size=args.calibration_batch_size, collate_fn=collate_fn)
 
     validation_dataset = get_dataset_for_model(
-        args.model,
         bos_preprocessing=args.bos_preprocessing,
         dataset_name=args.dataset,
         tokenizer=tokenizer,
         nsamples=args.nsamples,
         seqlen=args.seqlen,
         split=args.dataset_eval_split,
-        seed=args.seed,
-        require_fx=require_fx and args.export_target is not None,
-        device=None)
+        seed=args.seed)
 
     validation_loader = DataLoader(dataset=validation_dataset, batch_size=1, collate_fn=collate_fn)
 
@@ -328,16 +323,13 @@ def quantize_llm(args, extra_args=None):
         rot_optimization_args = parse_rotation_optimization_args(extra_args=extra_args)
         # Load the data for rotation optimization
         rot_calibration_dataset = get_dataset_for_model(
-            args.model,
             bos_preprocessing=args.bos_preprocessing,
             dataset_name=args.dataset,
             tokenizer=tokenizer,
             nsamples=args.nsamples_rot_calibration,
             seqlen=args.seqlen,
             split="train",
-            seed=args.seed,
-            require_fx=require_fx and args.export_target is not None,
-            device=None)
+            seed=args.seed)
 
     device = next(iter(model.parameters())).device
     print("Data loaded.")
@@ -609,7 +601,7 @@ def quantize_llm(args, extra_args=None):
                 tokenizer=tokenizer,
                 train_dataset=rot_calibration_dataset,
                 training_args=rot_optimization_args,
-            )
+                collate_fn=collate_fn)
             # Remove hooks from optimization
             remove_hooks(model)
             # Offload model before fusing the rotations
@@ -635,10 +627,10 @@ def quantize_llm(args, extra_args=None):
             print("Applying learned round...")
             if args.load_checkpoint:
                 iters = 1
-                loader = [calibration_dataset[0]]
+                loader = next(iter(**calibration_loader))
             else:
                 iters = args.learned_round_iters
-                loader = calibration_dataset
+                loader = calibration_loader
             remove_hooks(model)
             # TODO (pml): Fix learned round type hints
             apply_learned_round(

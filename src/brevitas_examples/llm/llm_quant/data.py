@@ -97,8 +97,7 @@ def tokenize_and_group_texts(
         fuse_documents=fuse_documents,
         sequence_length=sequence_length,
         bos_token_id=tokenizer.bos_token_id,
-        add_bos_token=bos_preprocessing == "sequence",
-    )
+        add_bos_token=bos_preprocessing == "sequence")
 
 
 def get_clm_dataset(
@@ -175,21 +174,20 @@ def get_wikitext2(
     else:
         # Identity, the BOS token is not added
         sequence_process_fn = lambda inp: inp
-
     input_ids = tokenizer(
         "\n\n".join(raw_dataset['text']), return_attention_mask=False)["input_ids"]
     tokenized_data = []
     if split == 'train':
         for _ in tqdm(range(nsamples)):
-            i = random.randint(0, input_ids.shape[1] - seqlen - 1)
+            i = random.randint(0, len(input_ids) - seqlen - 1)
             j = i + seqlen
-            inp = sequence_process_fn(input_ids[:, i:j])
+            inp = sequence_process_fn(input_ids[i:j])
             tokenized_data.append({'input_ids': inp})
     elif split in ['test', 'validation']:
-        nsamples = input_ids.numel() // seqlen
+        nsamples = len(input_ids) // seqlen
         for i in tqdm(range(nsamples)):
-            batch = sequence_process_fn(input_ids[:, (i * seqlen):((i + 1) * seqlen)])
-            tokenized_data.append({'input_ids': inp})
+            batch = sequence_process_fn(input_ids[(i * seqlen):((i + 1) * seqlen)])
+            tokenized_data.append({'input_ids': batch})
     return Dataset.from_list(tokenized_data)
 
 

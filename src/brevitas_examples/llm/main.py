@@ -194,7 +194,12 @@ def model_export(model, tokenizer, ref_input, args, config=None):
                 do_validation=False)
     elif 'gguf' in args.export_target:
         save_quantized_as_gguf('.', model, tokenizer, args.export_target)
+    elif args.export_target == 'vllm':
+        from brevitas.export.inference.vLLM.manager import vLLMExportManager
 
+        with quant_inference_mode(model, export_manager=vLLMExportManager) as export_mode:
+            model(**ref_input)
+            export_mode.export_manager.export(model, tokenizer, args.export_prefix)
     elif args.export_target == 'shark':
         assert SharkManager is not None, "Please install shark-ai to export to Shark"
         from sharktank.types import Theta
@@ -696,7 +701,6 @@ def quantize_llm(args, extra_args=None):
         # by the zero shot evaluation libraries (e.g., LightEvel), so we remove the `weight_orig` tensors
         # here, if they exist, to save memory.
         remove_weight_orig(model)
-
         if args.eval and not args.no_quantize:
             print("Model eval...")
             with torch.no_grad(), quant_inference_mode(model, compile=args.compile_eval):

@@ -16,3 +16,5 @@ User Guides
    vLLM Export <export_vllm>
 
    Shark-AI Export <export_shark>
+
+   Learned Round <learned_round>

@@ -76,6 +76,10 @@ class BaseQuantizer:
                 quantizers_dict[key] = value
         return quantizers_dict
 
+    @classmethod
+    def post_process_quant_model(cls: "BaseQuantizer", model: nn.Module) -> nn.Module:
+        return model
+
 
 # Registry for custom quantizers
 QUANTIZERS_REGISTRY = Registry[Type[BaseQuantizer]](registry_name="QuantizersRegistry")

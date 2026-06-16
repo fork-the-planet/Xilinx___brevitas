@@ -9,7 +9,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="generator" content="Docutils 0.19: https://docutils.sourceforge.io/" />
 
-    <title>User Guides &#8212; Brevitas Documentation - dev</title>
+    <title>vLLM Export &#8212; Brevitas Documentation - dev</title>
   
   
   
@@ -44,7 +44,7 @@
     <script src="../_static/doctools.js"></script>
     <script src="../_static/sphinx_highlight.js"></script>
     <script crossorigin="anonymous" integrity="sha256-Ae2Vz/4ePdIu6ZyI/5ZGsYnb+m0JlOmKPjt6XZ9JJkA=" src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.4/require.min.js"></script>
-    <script>DOCUMENTATION_OPTIONS.pagename = 'user_guide/index';</script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'user_guide/export_vllm';</script>
     <script>
         DOCUMENTATION_OPTIONS.theme_version = '0.15.3';
         DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://xilinx.github.io/brevitas/dev/_static/versions.json';
@@ -54,8 +54,8 @@
     <link rel="author" title="About these documents" href="../about.html" />
     <link rel="index" title="Index" href="../genindex.html" />
     <link rel="search" title="Search" href="../search.html" />
-    <link rel="next" title="Architecture" href="architecture.html" />
-    <link rel="prev" title="Pushing the Limits of Block Rotations in Post-Training Quantization" href="../papers/perq.html" />
+    <link rel="next" title="Shark-AI Export" href="export_shark.html" />
+    <link rel="prev" title="GGUF Export" href="export_gguf.html" />
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <meta name="docsearch:language" content="en"/>
   </head>
@@ -178,7 +178,7 @@
 
 
 <li class="nav-item pst-header-nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+  <a class="nav-link nav-internal" href="index.html">
     User Guides
   </a>
 </li>
@@ -332,7 +332,7 @@ document.write(`
 
 
 <li class="nav-item pst-header-nav-item current active">
-  <a class="nav-link nav-internal" href="#">
+  <a class="nav-link nav-internal" href="index.html">
     User Guides
   </a>
 </li>
@@ -396,12 +396,12 @@ document.write(`
 <nav class="bd-docs-nav bd-links"
      aria-label="Section Navigation">
   <p class="bd-links__title" role="heading" aria-level="1">Section Navigation</p>
-  <div class="bd-toc-item navbar-nav"><ul class="nav bd-sidenav">
+  <div class="bd-toc-item navbar-nav"><ul class="current nav bd-sidenav">
 <li class="toctree-l1"><a class="reference internal" href="architecture.html">Architecture</a></li>
 <li class="toctree-l1"><a class="reference internal" href="compile.html">Brevitas and Compile</a></li>
 <li class="toctree-l1"><a class="reference internal" href="rotations.html">Hadamard Rotations</a></li>
 <li class="toctree-l1"><a class="reference internal" href="export_gguf.html">GGUF Export</a></li>
-<li class="toctree-l1"><a class="reference internal" href="export_vllm.html">vLLM Export</a></li>
+<li class="toctree-l1 current active"><a class="current reference internal" href="#">vLLM Export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="export_shark.html">Shark-AI Export</a></li>
 <li class="toctree-l1"><a class="reference internal" href="learned_round.html">Learned Round</a></li>
 </ul>
@@ -441,7 +441,10 @@ document.write(`
         <i class="fa-solid fa-home"></i>
       </a>
     </li>
-    <li class="breadcrumb-item active" aria-current="page">User Guides</li>
+    
+    <li class="breadcrumb-item"><a href="index.html" class="nav-link">User Guides</a></li>
+    
+    <li class="breadcrumb-item active" aria-current="page">vLLM Export</li>
   </ul>
 </nav>
 </div>
@@ -458,19 +461,179 @@ document.write(`
 <div id="searchbox"></div>
                 <article class="bd-article">
                   
-  <section id="user-guides">
-<h1>User Guides<a class="headerlink" href="#user-guides" title="Permalink to this heading">#</a></h1>
-<div class="toctree-wrapper compound">
-<ul>
-<li class="toctree-l1"><a class="reference internal" href="architecture.html">Architecture</a></li>
-<li class="toctree-l1"><a class="reference internal" href="compile.html">Brevitas and Compile</a></li>
-<li class="toctree-l1"><a class="reference internal" href="rotations.html">Hadamard Rotations</a></li>
-<li class="toctree-l1"><a class="reference internal" href="export_gguf.html">GGUF Export</a></li>
-<li class="toctree-l1"><a class="reference internal" href="export_vllm.html">vLLM Export</a></li>
-<li class="toctree-l1"><a class="reference internal" href="export_shark.html">Shark-AI Export</a></li>
-<li class="toctree-l1"><a class="reference internal" href="learned_round.html">Learned Round</a></li>
-</ul>
+  <section id="vllm-export">
+<h1>vLLM Export<a class="headerlink" href="#vllm-export" title="Permalink to this heading">#</a></h1>
+<p><a class="reference external" href="https://github.com/vllm-project/vllm">vLLM</a> is a popular high-throughput and memory-efficient
+inference and serving engine for Large Language Models (LLMs).</p>
+<p>In Brevitas, we provide an export flow that produces vLLM-compatible quantized models
+directly from the LLM entrypoint. The exported model can then be loaded and served through
+vLLM with quantization applied transparently.</p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>vLLM is not a dependency of Brevitas and must be installed separately.
+The vLLM import only occurs when <code class="docutils literal notranslate"><span class="pre">--export-target</span> <span class="pre">vllm</span></code> is specified.</p>
 </div>
+<section id="qdq-based-export">
+<h2>QDQ-based Export<a class="headerlink" href="#qdq-based-export" title="Permalink to this heading">#</a></h2>
+<p>The current vLLM export flow is based on a <strong>Quantize-DeQuantize (QDQ)</strong> approach:</p>
+<ul class="simple">
+<li><p>Weights are stored in their dequantized (full precision) form via <code class="docutils literal notranslate"><span class="pre">model.save_pretrained()</span></code>.</p></li>
+<li><p>All quantization metadata (scales, zero points, bit widths, handler class types, rotation
+configurations) is serialized into a <code class="docutils literal notranslate"><span class="pre">brevitas_config.json</span></code> file alongside the model.</p></li>
+<li><p>At load time, vLLM discovers the <code class="docutils literal notranslate"><span class="pre">brevitas_config.json</span></code>, reconstructs the quantization
+handlers for each layer, and re-quantizes the weights.</p></li>
+</ul>
+<p>This means the model directory produced by the export is a standard HuggingFace-compatible
+checkpoint, with the addition of <code class="docutils literal notranslate"><span class="pre">brevitas_config.json</span></code> that vLLM uses to apply quantization.</p>
+<p>A <strong>Quantized Operations (QOp)</strong> approach, where operations such as matrix multiplication run
+directly on quantized data using accelerated kernels, is currently a work in progress and is
+not yet available.</p>
+</section>
+<section id="supported-configurations">
+<h2>Supported Configurations<a class="headerlink" href="#supported-configurations" title="Permalink to this heading">#</a></h2>
+<section id="weight-quantization">
+<h3>Weight Quantization<a class="headerlink" href="#weight-quantization" title="Permalink to this heading">#</a></h3>
+<p>The following weight quantization formats are supported:</p>
+<ul class="simple">
+<li><p><strong>Integer</strong>: int8 (symmetric), uint8 (asymmetric)</p></li>
+<li><p><strong>FP8</strong>: e4m3 (both <code class="docutils literal notranslate"><span class="pre">float</span></code> and <code class="docutils literal notranslate"><span class="pre">float_ocp</span></code> variants)</p></li>
+<li><p><strong>MX formats</strong>: MXInt8, MXFloat8e4m3</p></li>
+</ul>
+<p>Weight quantization granularity options:</p>
+<ul class="simple">
+<li><p>Per tensor</p></li>
+<li><p>Per channel</p></li>
+<li><p>Per group (groupwise), with configurable group size</p></li>
+</ul>
+</section>
+<section id="activation-quantization">
+<h3>Activation Quantization<a class="headerlink" href="#activation-quantization" title="Permalink to this heading">#</a></h3>
+<p>The following activation quantization formats are supported:</p>
+<ul class="simple">
+<li><p><strong>Integer</strong>: int8 (symmetric), uint8 (asymmetric)</p></li>
+<li><p><strong>FP8</strong>: e4m3 (both <code class="docutils literal notranslate"><span class="pre">float</span></code> and <code class="docutils literal notranslate"><span class="pre">float_ocp</span></code> variants)</p></li>
+<li><p><strong>MX formats</strong>: MXInt8, MXFloat8e4m3</p></li>
+</ul>
+<p>Activation quantization granularity options:</p>
+<ul class="simple">
+<li><p>Per tensor (static)</p></li>
+<li><p>Per row (dynamic) – FP8 only</p></li>
+<li><p>Per group (dynamic)</p></li>
+</ul>
+</section>
+</section>
+<section id="llm-entrypoint">
+<h2>LLM Entrypoint<a class="headerlink" href="#llm-entrypoint" title="Permalink to this heading">#</a></h2>
+<p>Brevitas’ LLM entrypoint allows the user to load, quantize, test, and export many of the LLM available on
+HuggingFace, by simply passing a series of command line arguments that can control, among other things:</p>
+<ul class="simple">
+<li><p>Weights and activations bit width</p></li>
+<li><p>Weights and activation quantization format (int vs float, asym vs sym, etc.)</p></li>
+<li><p>PTQ algorithms to apply and their options</p></li>
+<li><p>and much more…</p></li>
+</ul>
+<p>Below are some example configurations for the vLLM export target.</p>
+<p><strong>Weight-only INT8 symmetric per-group quantization:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>brevitas_ptq_llm<span class="w"> </span>--model<span class="w"> </span>org/model<span class="w"> </span>--weight-bit-width<span class="w"> </span><span class="m">8</span><span class="w"> </span>--weight-quant-format<span class="w"> </span>int<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--weight-quant-type<span class="w"> </span>sym<span class="w"> </span>--weight-quant-granularity<span class="w"> </span>per_group<span class="w"> </span>--weight-group-size<span class="w"> </span><span class="m">128</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--export-target<span class="w"> </span>vllm<span class="w"> </span>--export-prefix<span class="w"> </span>./exported_model
+</pre></div>
+</div>
+<p><strong>Weight-only INT4 symmetric per-group quantization:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>brevitas_ptq_llm<span class="w"> </span>--model<span class="w"> </span>org/model<span class="w"> </span>--weight-bit-width<span class="w"> </span><span class="m">4</span><span class="w"> </span>--weight-quant-type<span class="w"> </span>sym<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--weight-quant-granularity<span class="w"> </span>per_group<span class="w"> </span>--weight-group-size<span class="w"> </span><span class="m">128</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--export-target<span class="w"> </span>vllm<span class="w"> </span>--export-prefix<span class="w"> </span>./exported_model
+</pre></div>
+</div>
+<p><strong>FP8 weight and dynamic per-row activation quantization:</strong></p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>brevitas_ptq_llm<span class="w"> </span>--model<span class="w"> </span>org/model<span class="w"> </span>--weight-bit-width<span class="w"> </span><span class="m">8</span><span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--weight-quant-format<span class="w"> </span>float_ocp_e4m3<span class="w"> </span>--weight-quant-granularity<span class="w"> </span>per_channel<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--input-bit-width<span class="w"> </span><span class="m">8</span><span class="w"> </span>--input-quant-format<span class="w"> </span>float_ocp_e4m3<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--input-quant-granularity<span class="w"> </span>per_row<span class="w"> </span>--input-scale-type<span class="w"> </span>dynamic<span class="w"> </span><span class="se">\</span>
+<span class="w">  </span>--act-calibration<span class="w"> </span>--export-target<span class="w"> </span>vllm<span class="w"> </span>--export-prefix<span class="w"> </span>./exported_model
+</pre></div>
+</div>
+<p>These commands will produce quantized models without any extra pre-processing, but several PTQ
+algorithms are compatible with this export flow (see below).</p>
+<p>The <code class="docutils literal notranslate"><span class="pre">--export-prefix</span></code> argument specifies the output directory where the model, tokenizer,
+and <code class="docutils literal notranslate"><span class="pre">brevitas_config.json</span></code> will be saved.</p>
+</section>
+<section id="compatible-ptq-algorithms">
+<h2>Compatible PTQ Algorithms<a class="headerlink" href="#compatible-ptq-algorithms" title="Permalink to this heading">#</a></h2>
+<p>The following PTQ algorithms are compatible with the vLLM export flow:</p>
+<ul class="simple">
+<li><p>GPTQ / GPFQ</p></li>
+<li><p>MagR</p></li>
+<li><p>SmoothQuant (fused version only, not layerwise)</p></li>
+<li><p>Weight Equalization</p></li>
+<li><p>QuaRot / SpinQuant (all rotation modes: <code class="docutils literal notranslate"><span class="pre">fx</span></code>, <code class="docutils literal notranslate"><span class="pre">fused_no_fx</span></code>, <code class="docutils literal notranslate"><span class="pre">layerwise</span></code>)</p></li>
+<li><p>Bias Correction</p></li>
+<li><p>Qronos</p></li>
+</ul>
+<p>The following are <strong>not</strong> currently supported:</p>
+<ul class="simple">
+<li><p>AWQ</p></li>
+<li><p>Learned Round (support is a work in progress)</p></li>
+<li><p>SVDQuant</p></li>
+</ul>
+</section>
+<section id="export-output">
+<h2>Export Output<a class="headerlink" href="#export-output" title="Permalink to this heading">#</a></h2>
+<p>When the export completes, the output directory (specified by <code class="docutils literal notranslate"><span class="pre">--export-prefix</span></code>) will contain:</p>
+<ul class="simple">
+<li><p><strong>Model weights</strong>: saved via <code class="docutils literal notranslate"><span class="pre">model.save_pretrained()</span></code> in standard HuggingFace format.</p></li>
+<li><p><strong>Tokenizer files</strong>: saved via <code class="docutils literal notranslate"><span class="pre">tokenizer.save_pretrained()</span></code>.</p></li>
+<li><p><strong>brevitas_config.json</strong>: a JSON file containing per-layer quantization metadata, including:</p>
+<ul>
+<li><p>Quantization handler class type per proxy (weight, input, output, bias)</p></li>
+<li><p>Scale and zero point values</p></li>
+<li><p>Bit width, float-to-int implementation type, and scaling restriction settings</p></li>
+<li><p>Rotation configurations (Hadamard matrix shape and <code class="docutils literal notranslate"><span class="pre">k</span></code> value) for layers wrapped
+in <code class="docutils literal notranslate"><span class="pre">RotatedModule</span></code></p></li>
+</ul>
+</li>
+</ul>
+<p>At load time in vLLM, the registered <code class="docutils literal notranslate"><span class="pre">quant_brevitas</span></code> quantization method discovers
+<code class="docutils literal notranslate"><span class="pre">brevitas_config.json</span></code> and assigns a <code class="docutils literal notranslate"><span class="pre">QuantLinear</span></code> method to each linear layer. This method
+reconstructs the quantization handlers from the saved configuration and applies quantization
+during inference.</p>
+</section>
+<section id="using-the-exported-model-in-vllm">
+<h2>Using the Exported Model in vLLM<a class="headerlink" href="#using-the-exported-model-in-vllm" title="Permalink to this heading">#</a></h2>
+<p>Once the model has been exported, it can be loaded in vLLM like any other quantized model by
+pointing to the export directory:</p>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">from</span><span class="w"> </span><span class="nn">vllm</span><span class="w"> </span><span class="kn">import</span> <span class="n">LLM</span>
+
+<span class="n">llm</span> <span class="o">=</span> <span class="n">LLM</span><span class="p">(</span><span class="n">model</span><span class="o">=</span><span class="s2">&quot;./exported_model&quot;</span><span class="p">,</span> <span class="n">quantization</span><span class="o">=</span><span class="s2">&quot;quant_brevitas&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+<p>Or via the vLLM CLI:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>vllm<span class="w"> </span>serve<span class="w"> </span>./exported_model<span class="w"> </span>--quantization<span class="w"> </span>quant_brevitas
+</pre></div>
+</div>
+</section>
+<section id="faq">
+<h2>FAQ<a class="headerlink" href="#faq" title="Permalink to this heading">#</a></h2>
+<ul class="simple">
+<li><p><em>What is the difference between QDQ and QOp?</em></p></li>
+</ul>
+<p>QDQ (Quantize-DeQuantize) exports dequantized weights alongside quantization metadata.
+At load time, vLLM reconstructs the quantization and re-quantizes the weights.
+QOp (Quantized Operations) operates directly on quantized tensors using accelerated kernels
+(e.g., MXFP4 via <code class="docutils literal notranslate"><span class="pre">aiter</span></code>), avoiding the dequantize-requantize overhead.
+Currently only the QDQ approach is available; QOp is a work in progress.</p>
+<ul class="simple">
+<li><p><em>Can I use custom quantizers with the vLLM export?</em></p></li>
+</ul>
+<p>Yes, the <code class="docutils literal notranslate"><span class="pre">--custom-quantizer</span></code> flag is compatible with the vLLM export path, as long as
+the underlying quantization format maps to one of the supported inference handlers.</p>
+<ul class="simple">
+<li><p><em>Why do I get an import error for vLLM?</em></p></li>
+</ul>
+<p>vLLM is not bundled with Brevitas and must be installed separately in your environment.
+The vLLM-specific code is only imported when <code class="docutils literal notranslate"><span class="pre">--export-target</span> <span class="pre">vllm</span></code> is specified, so
+vLLM is not required for other Brevitas workflows.</p>
+</section>
 </section>
 
 
@@ -484,20 +647,20 @@ document.write(`
                   
 <div class="prev-next-area">
     <a class="left-prev"
-       href="../papers/perq.html"
+       href="export_gguf.html"
        title="previous page">
       <i class="fa-solid fa-angle-left"></i>
       <div class="prev-next-info">
         <p class="prev-next-subtitle">previous</p>
-        <p class="prev-next-title">Pushing the Limits of Block Rotations in Post-Training Quantization</p>
+        <p class="prev-next-title">GGUF Export</p>
       </div>
     </a>
     <a class="right-next"
-       href="architecture.html"
+       href="export_shark.html"
        title="next page">
       <div class="prev-next-info">
         <p class="prev-next-subtitle">next</p>
-        <p class="prev-next-title">Architecture</p>
+        <p class="prev-next-title">Shark-AI Export</p>
       </div>
       <i class="fa-solid fa-angle-right"></i>
     </a>
@@ -512,9 +675,31 @@ document.write(`
 
 
   <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav class="bd-toc-nav page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="visible nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#qdq-based-export">QDQ-based Export</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#supported-configurations">Supported Configurations</a><ul class="nav section-nav flex-column">
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#weight-quantization">Weight Quantization</a></li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#activation-quantization">Activation Quantization</a></li>
+</ul>
+</li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#llm-entrypoint">LLM Entrypoint</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#compatible-ptq-algorithms">Compatible PTQ Algorithms</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#export-output">Export Output</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#using-the-exported-model-in-vllm">Using the Exported Model in vLLM</a></li>
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#faq">FAQ</a></li>
+</ul>
+  </nav></div>
+
+  <div class="sidebar-secondary-item">
 
   <div class="tocsection sourcelink">
-    <a href="../_sources/user_guide/index.rst.txt">
+    <a href="../_sources/user_guide/export_vllm.rst.txt">
       <i class="fa-solid fa-file-lines"></i> Show Source
     </a>
   </div>

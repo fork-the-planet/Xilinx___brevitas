@@ -35,6 +35,8 @@ from brevitas.utils.python_utils import hooked_on_a_function
 from brevitas_examples.common.accelerate_utils.accelerate import offload_model
 from brevitas_examples.common.accelerate_utils.accelerate import remove_hooks
 from brevitas_examples.common.accelerate_utils.accelerate import update_internal_dict
+from brevitas_examples.common.dynamo_utils import dynamo_export_ctx
+from brevitas_examples.common.dynamo_utils import patch_dynamo_export
 from brevitas_examples.common.generative.quantize import generate_quant_maps
 from brevitas_examples.common.generative.quantize import generate_quantizers
 from brevitas_examples.common.generative.quantizers import QUANTIZERS_REGISTRY
@@ -82,6 +84,9 @@ except:
     SharkManager = None
     logging.debug("Shark-AI not installed, cannot export to Shark")
 
+# We need to patch this before anything else is executed
+patch_dynamo_export()
+
 
 def filter_results(results, tasks):
     # filter out what we actually want to track
@@ -99,7 +104,7 @@ def filter_results(results, tasks):
 def fused_rotation_no_fx(model, calibration_loader, args):
     with torch.no_grad(), rmsnorm_patch(model, model.config) as patcher:
         rmsnorm_classes = patcher.rmsnorm_classes
-        with make_dynamo_compatible(model) as dynamo_comp:
+        with make_dynamo_compatible(model) as dynamo_comp, dynamo_export_ctx():
             fx_model, guards = torch._dynamo.export(dynamo_comp.model)(**next(iter(calibration_loader)))
     if hasattr(model, str(torch.nn.functional.scaled_dot_product_attention)):
         m_to_add = getattr(model, str(torch.nn.functional.scaled_dot_product_attention))
@@ -351,7 +356,7 @@ def quantize_llm(args, extra_args=None):
     if require_fx:
         with torch.no_grad(), rmsnorm_patch(model, model.config, enabled=args.replace_rmsnorm) as patcher:
             rmsnorm_classes = patcher.rmsnorm_classes
-            with make_dynamo_compatible(model) as dynamo_comp:
+            with make_dynamo_compatible(model) as dynamo_comp, dynamo_export_ctx():
                 model, guards = torch._dynamo.export(model)(**next(iter(calibration_loader)))
         # Blockwise optimization does not work with FX at the moment
         args.gpxq_block_name = None

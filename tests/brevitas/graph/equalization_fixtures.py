@@ -390,18 +390,38 @@ RESNET_18_REGIONS = [
     [('layer4.0.bn2', 'layer4.0.downsample.1', 'layer4.1.bn2'), ('fc', 'layer4.1.conv1')],]
 
 
-input_quant, weight_quant = pytest_cases.param_fixtures("input_quant, weight_quant", [(None, Int8WeightPerTensorFloat), (Int8ActPerTensorFloat, Int8WeightPerTensorFloat), (MXInt8Act, MXInt8Weight), (MXFloat8e4m3Act, MXFloat8e4m3Weight)])
+def _set_weight_quant_to_param(weight_quant):
+    # Some quantizers default to scaling_impl_type=stats, which recomputes the scale
+    # from the current weights on each forward pass. GPxQ updates weights greedily, so
+    # the scale would shift with every update. Forcing parameter_from_stats fixes the
+    # scale as a stored parameter initialized once from the initial weights.
+    weight_quant = weight_quant.let(scaling_impl_type='parameter_from_stats')
+    return weight_quant
+
+
+list_of_input_weight_quant_tuples = [
+    (None, _set_weight_quant_to_param(Int8WeightPerTensorFloat)),
+    (Int8ActPerTensorFloat, _set_weight_quant_to_param(Int8WeightPerTensorFloat)),
+    (MXInt8Act, _set_weight_quant_to_param(MXInt8Weight)), (MXFloat8e4m3Act, MXFloat8e4m3Weight)]
+
+
+input_quant, weight_quant = pytest_cases.param_fixtures("input_quant, weight_quant", list_of_input_weight_quant_tuples)
 
 
 @pytest_cases.fixture
 def quant_conv_with_input_quant_model(input_quant, weight_quant):
 
     class QuantConvModel(nn.Module):
+        input_size = IN_SIZE_CONV_SMALL[1:]
 
         def __init__(self) -> None:
             super().__init__()
             self.conv_0 = qnn.QuantConv2d(
-                3, 16, kernel_size=3)  # gpxq tests assume no quant on first layer
+                self.input_size[0],
+                16,
+                kernel_size=3,
+                input_quant=input_quant,
+                weight_quant=weight_quant)
             self.conv_1 = qnn.QuantConv2d(
                 16, 32, kernel_size=3, input_quant=input_quant, weight_quant=weight_quant)
 
@@ -415,15 +435,27 @@ def quant_conv_with_input_quant_model(input_quant, weight_quant):
 
 
 @pytest_cases.fixture
-def quant_convdepthconv_model():
+def quant_convdepthconv_model(input_quant, weight_quant):
 
     class QuantConvDepthConvModel(nn.Module):
+        input_size = IN_SIZE_CONV_SMALL[1:]
 
         def __init__(self) -> None:
             super().__init__()
-            self.conv = qnn.QuantConv2d(3, 16, kernel_size=3)
-            self.conv_0 = qnn.QuantConv2d(16, 16, kernel_size=1, groups=16)
-            self.relu = qnn.QuantReLU(return_quant_tensor=True)
+            self.conv = qnn.QuantConv2d(
+                self.input_size[0],
+                16,
+                kernel_size=3,
+                input_quant=input_quant,
+                weight_quant=weight_quant)
+            self.conv_0 = qnn.QuantConv2d(
+                16,
+                16,
+                kernel_size=1,
+                groups=16,
+                input_quant=input_quant,
+                weight_quant=weight_quant)
+            self.relu = qnn.QuantReLU(return_quant_tensor=input_quant != None)
 
         def forward(self, x):
             x = self.conv(x)
@@ -438,13 +470,15 @@ def quant_convdepthconv_model():
 def quant_residual_model(input_quant, weight_quant):
 
     class QuantResidualModel(nn.Module):
+        input_size = IN_SIZE_CONV_SMALL[1:]
 
         def __init__(self) -> None:
             super().__init__()
+            in_channels = self.input_size[0]
             self.conv = qnn.QuantConv2d(
-                3, 16, kernel_size=1, input_quant=input_quant, weight_quant=weight_quant)
+                in_channels, 16, kernel_size=1, input_quant=input_quant, weight_quant=weight_quant)
             self.conv_0 = qnn.QuantConv2d(
-                16, 3, kernel_size=1, input_quant=input_quant, weight_quant=weight_quant)
+                16, in_channels, kernel_size=1, input_quant=input_quant, weight_quant=weight_quant)
             self.relu = qnn.QuantReLU(return_quant_tensor=input_quant != None)
 
         def forward(self, x):
@@ -463,12 +497,13 @@ def quant_residual_model(input_quant, weight_quant):
 def quant_convtranspose_model(input_quant, weight_quant):
 
     class QuantConvTransposeModel(nn.Module):
+        input_size = IN_SIZE_CONV_SMALL[1:]
 
         def __init__(self) -> None:
             super().__init__()
             self.relu = qnn.QuantReLU(return_quant_tensor=input_quant != None)
             self.conv_0 = qnn.QuantConvTranspose2d(
-                in_channels=3,
+                in_channels=self.input_size[0],
                 out_channels=8,
                 kernel_size=3,
                 input_quant=input_quant,
@@ -489,11 +524,38 @@ def quant_convtranspose_model(input_quant, weight_quant):
     return QuantConvTransposeModel
 
 
+@pytest_cases.fixture
+def quant_linear_model(input_quant, weight_quant):
+
+    class QuantLinearModel(nn.Module):
+        input_size = IN_SIZE_LINEAR[1:]
+
+        def __init__(self) -> None:
+            super().__init__()
+            self.linear_0 = qnn.QuantLinear(
+                in_features=self.input_size[-1],
+                out_features=16,
+                input_quant=input_quant,
+                weight_quant=weight_quant)
+            self.relu = qnn.QuantReLU(return_quant_tensor=input_quant != None)
+            self.linear_1 = qnn.QuantLinear(
+                in_features=16, out_features=32, input_quant=input_quant, weight_quant=weight_quant)
+
+        def forward(self, x):
+            x = self.linear_0(x)
+            x = self.relu(x)
+            x = self.linear_1(x)
+            return x
+
+    return QuantLinearModel
+
+
 list_of_quant_fixtures = [
     'quant_conv_with_input_quant_model',
     'quant_convdepthconv_model',
     'quant_residual_model',
-    'quant_convtranspose_model']
+    'quant_convtranspose_model',
+    'quant_linear_model']
 
 toy_quant_model = fixture_union(
     'toy_quant_model', list_of_quant_fixtures, ids=list_of_quant_fixtures)

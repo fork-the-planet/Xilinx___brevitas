@@ -45,8 +45,10 @@ from brevitas.quant.float_quant_ocp import Fp8e4m3OCPWeightPerChannelFloat
 from brevitas.quant.scaled_int import Int8ActPerTensorFloat
 from brevitas.quant.scaled_int import Int8WeightPerChannelFloat
 from brevitas.quant.scaled_int import Int8WeightPerChannelFloatHQO
+from brevitas.quant.scaled_int import Int8WeightPerChannelFloatMSE
 from brevitas.quant.scaled_int import Int8WeightPerTensorFloat
 from brevitas.quant.shifted_scaled_int import ShiftedUint8ActPerTensorFloat
+from brevitas.quant.shifted_scaled_int import ShiftedUint8WeightGroupQuantFloat
 from brevitas.quant.shifted_scaled_int import ShiftedUint8WeightPerChannelFloat
 from brevitas.utils.python_utils import Registry
 
@@ -98,6 +100,15 @@ class IntWeightSymmetricGroupQuant(Int8WeightPerChannelFloat):
     scaling_per_output_type = ScalingPerOutputType.GROUP
 
 
+class IntWeightSymmetricGroupQuantMSE(Int8WeightPerChannelFloatMSE):
+    """
+    Block / group / vector signed symmetric int weight quantizer with float scales.
+    We inherit from a per-channel quantizer to re-use some underlying machinery.
+    """
+    proxy_class = GroupwiseWeightQuantProxyFromInjector
+    scaling_per_output_type = ScalingPerOutputType.GROUP
+
+
 class Fp8e4m3WeightSymmetricGroupQuant(Fp8e4m3WeightPerChannelFloat):
     """
     Block / group / vector signed symmetric e4m3 weight quantizer with float scales.
@@ -117,6 +128,10 @@ class Int8DynamicActPerTensorFloat(DynamicActProxyMixin, Int8ActPerTensorFloat):
     dynamic_scaling_broadcastable_fn = lambda x, shape: x.view(SCALAR_SHAPE)
 
 
+class ShiftedUint8WeightGroupQuantFloatMSE(MSESymmetricScale, ShiftedUint8WeightGroupQuantFloat):
+    pass
+
+
 class Fp8e4m3FNUZDynamicActPerTensorFloat(Fp8e4m3FNUZActPerTensorFloat):
     """
     Symmetric quantizer with per tensor dynamic scale.
@@ -125,6 +140,18 @@ class Fp8e4m3FNUZDynamicActPerTensorFloat(Fp8e4m3FNUZActPerTensorFloat):
     scaling_stats_input_view_shape_impl = OverTensorView
     scaling_stats_op = StatsOp.MAX
     dynamic_scaling_broadcastable_fn = lambda x, shape: x.view(SCALAR_SHAPE)
+    proxy_class = DynamicActFloatQuantProxyFromInjector
+
+
+class Fp8e4m3OCPDynamicActPerTensorFloat(Fp8e4m3OCPActPerTensorFloat):
+    """
+    Symmetric quantizer with per tensor dynamic scale.
+    """
+    scaling_impl = RuntimeDynamicStatsScaling
+    scaling_stats_input_view_shape_impl = OverTensorView
+    scaling_stats_op = StatsOp.MAX
+    dynamic_scaling_broadcastable_fn = lambda x, shape: x.view(SCALAR_SHAPE)
+    proxy_class = DynamicActFloatQuantProxyFromInjector
 
 
 class Int8DynamicActPerRowFloat(DynamicActProxyMixin, Int8ActPerTensorFloat):
@@ -188,7 +215,7 @@ class ShiftedUint8DynamicActPerRowFloat(DynamicActProxyMixin, ShiftedUint8ActPer
     zero_point_stats_impl = NegativeMinOrZero
 
 
-class Fp8e4m3DynamicActPerGroupFloat(DynamicActProxyMixin, Fp8e4m3ActPerTensorFloat):
+class Fp8e4m3DynamicActPerGroupFloat(Fp8e4m3ActPerTensorFloat):
     """
     Symmetric quantizer with per group scale.
     """
@@ -196,6 +223,7 @@ class Fp8e4m3DynamicActPerGroupFloat(DynamicActProxyMixin, Fp8e4m3ActPerTensorFl
     scaling_impl = RuntimeDynamicGroupStatsScaling
     scaling_per_output_type = ScalingPerOutputType.GROUP
     scaling_stats_op = StatsOp.MAX
+    proxy_class = DynamicActFloatQuantProxyFromInjector
 
 
 class FP8e4m3OCPDynamicActPerRowFixedPoint(Fp8e4m3OCPActPerTensorFloat):
@@ -219,7 +247,7 @@ class FP8e4m3OCPDynamicActPerRowFloat(Fp8e4m3OCPActPerTensorFloat):
     proxy_class = DynamicActFloatQuantProxyFromInjector
 
 
-class Fp8e4m3OCPDynamicActPerGroupFloat(DynamicActProxyMixin, Fp8e4m3OCPActPerTensorFloat):
+class Fp8e4m3OCPDynamicActPerGroupFloat(Fp8e4m3OCPActPerTensorFloat):
     """
     Symmetric quantizer with per group scale.
     """
@@ -227,6 +255,7 @@ class Fp8e4m3OCPDynamicActPerGroupFloat(DynamicActProxyMixin, Fp8e4m3OCPActPerTe
     scaling_impl = RuntimeDynamicGroupStatsScaling
     scaling_per_output_type = ScalingPerOutputType.GROUP
     scaling_stats_op = StatsOp.MAX
+    proxy_class = DynamicActFloatQuantProxyFromInjector
 
 
 class Fp8e4m3OCPWeightSymmetricGroupQuant(Fp8e4m3OCPWeightPerChannelFloat):

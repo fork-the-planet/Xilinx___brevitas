@@ -338,3 +338,7 @@ class SolveRestrictScaleSign(ExtendedInjector):
     @value
     def restrict_scale_positive(restrict_scaling_type=None):
         return restrict_scaling_type in [RestrictValueType.FP, RestrictValueType.POWER_OF_TWO]
+
+    @value
+    def bipolar_search(restrict_scale_positive):
+        return not restrict_scale_positive

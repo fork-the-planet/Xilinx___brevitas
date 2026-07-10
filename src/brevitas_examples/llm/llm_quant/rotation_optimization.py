@@ -1,17 +1,18 @@
 # Copyright (C) 2025, Advanced Micro Devices, Inc. All rights reserved.
 # SPDX-License-Identifier: BSD-3-Clause
 
+import copy
 from dataclasses import dataclass
-from dataclasses import field
-import os
+from typing import Any
 from typing import Callable
+from typing import Dict
 from typing import List
 from typing import Optional
+from typing import Type
 
 from accelerate.utils import DistributedType
 from datasets import Dataset
 import torch
-import torch.nn.functional as F
 import transformers
 from transformers import Trainer
 
@@ -21,103 +22,73 @@ except:
     # This has changed in transformers v5
     from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
-from brevitas.graph.calibrate import quantization_status_manager
-from brevitas.optim.cailey_sgd import CaileySGD
 from brevitas.utils.parametrization_utils import extract_trainable_rotation_matrices
 from brevitas_examples.common.accelerate_utils.accelerate import remove_hooks
+# Optimizer/scheduler building and trainer plumbing live in trainer_utils.
+from brevitas_examples.llm.llm_quant.trainer_utils import _build_optimizers_from_configs
+from brevitas_examples.llm.llm_quant.trainer_utils import GeneralizedTrainer
+from brevitas_examples.llm.llm_quant.trainer_utils import TrainingArguments
 
 
 @dataclass
-class TrainingArguments(transformers.TrainingArguments):
-    # By default, arguments are saved in the current working directory
-    output_dir: Optional[str] = field(default=os.getcwd())
-    # NOTE: Currently, there is no infrastructure to resume training
-    # from a checkpoint, so related files are not save by default
-    save_strategy: Optional[str] = field(default="no")
+class RotationTrainingArguments(TrainingArguments):
+    """Training arguments for the default rotation-optimization flow.
 
-    ### Optimizer args
-    optimizer_dtype: Optional[str] = field(
-        default=None,
-        metadata={
-            "help":
-                "Data type for CaileySGD optimizer computations. None means use parameter dtype."})
+    Expresses the CaileySGD-on-rotation-matrices default through the standard
+    ``optimizer_scheduler_args`` mechanism: a single optimizer whose (single)
+    parameter group is optimized with ``CaileySGD`` on the Stiefel manifold.
+    """
 
-    ### Distillation Loss args
-    use_distillation_loss: bool = field(
-        default=False, metadata={"help": "Whether to compute the distillation loss."})
-    gamma: float = field(
-        default=1., metadata={"help": "Gamma balances CE loss (gamma) vs KD loss (1-gamma)."})
-    temperature: float = field(
-        default=1.0, metadata={"help": "Softmax temperature for the soft targets"})
-    # Considering the huge vocabulary size of LLMs, it could be better selecting only the first K
-    # labels when using the distillation loss
-    topk: int = field(
-        default=-1,
-        metadata={"help": "Consider the first K logits when computing distillation loss"})
+    def __post_init__(self) -> None:
+        super().__post_init__()
+        if self.optimizer_scheduler_args is None:
+            self.optimizer_scheduler_args = [{
+                "optimizer_cls":
+                    "CaileySGD",
+                "param_setup": [{
+                    "get_param_fn": _select_rotation_params,
+                    "optimizer_kwargs": {
+                        "lr": self.learning_rate,
+                        "stiefel": True,
+                        "dtype": self.optimizer_dtype,},}],}]
 
 
-class GeneralizedTrainer(Trainer):
-
-    def __init__(self, args: TrainingArguments = None, **kwargs) -> None:
-        super().__init__(args=args, **kwargs)
-        self.use_distillation_loss = args.use_distillation_loss
-        self.gamma = args.gamma
-        self.temperature = args.temperature
-
-    @staticmethod
-    def forward_kl_loss(
-            student_logits, teacher_logits, temperature=1.0, topk=-1, reduction="batchmean"):
-
-        if topk > 0:
-            teacher_logits, indices = teacher_logits.topk(topk, dim=-1, sorted=False)
-            student_log_probs = student_log_probs.gather(-1, indices).flatten(0, -2)
-
-        # Apply temperature scaling
-        student_logits = student_logits / temperature
-        teacher_logits = teacher_logits / temperature
-
-        # Compute log probabilities for student and probabilities for teacher
-        student_log_probs = F.log_softmax(student_logits, dim=-1)
-        teacher_log_probs = F.log_softmax(teacher_logits, dim=-1)
-        student_log_probs = student_log_probs
-
-        loss = F.kl_div(student_log_probs, teacher_log_probs, reduction=reduction, log_target=True)
-        return loss
-
-    def compute_loss(self, model, inputs, return_outputs=False, num_items_in_batch=None):
-        """
-        How the loss is computed by Trainer. By default, all models return the loss in the first element.
-
-        Subclass and override for custom behavior.
-        """
-        # If distillation loss is used, we need to retrieve the original model's outputs
-        distillation_return_outputs = return_outputs if not self.use_distillation_loss else True
-
-        loss = super().compute_loss(model, inputs, distillation_return_outputs, num_items_in_batch)
-
-        if distillation_return_outputs:
-            loss, outputs = loss
-
-        if self.use_distillation_loss:
-            with torch.no_grad(), quantization_status_manager(model, disable_act_quant=True, disable_weight_quant=True, disable_bias_quant=True):
-                fp_outputs = model(**inputs)
-            # Compute the distillation loss
-            distill_loss = GeneralizedTrainer.forward_kl_loss(
-                student_logits=outputs.logits,
-                teacher_logits=fp_outputs.logits,
-                temperature=self.temperature,
-            )
-            if (self.args.average_tokens_across_devices and
-                (self.model_accepts_loss_kwargs or self.compute_loss_func) and
-                    num_items_in_batch is not None):
-                distill_loss = distill_loss * self.accelerator.num_processes
-            loss = self.gamma * loss + (1. - self.gamma) * distill_loss
-
-        return (loss, outputs) if return_outputs else loss
+def _select_rotation_params(
+        model: torch.nn.Module,
+        training_args: transformers.TrainingArguments) -> List[torch.nn.Parameter]:
+    """Return the model's trainable rotation matrices (one parameter group)."""
+    return extract_trainable_rotation_matrices(model)
 
 
-def parse_rotation_optimization_args(extra_args: Optional[List[str]] = None) -> TrainingArguments:
-    parser = transformers.HfArgumentParser(TrainingArguments)
+class RotationTrainer(GeneralizedTrainer):
+    """Default trainer for rotation optimization.
+
+    Uses :class:`RotationTrainingArguments`, whose ``optimizer_scheduler_args``
+    expresses CaileySGD on the trainable rotation matrices (selected via
+    ``param_setup``). Selected automatically by :func:`apply_fine_tuning` when
+    the model has trainable rotation matrices and no custom trainer is provided.
+    """
+    training_args_cls: Type[transformers.TrainingArguments] = RotationTrainingArguments
+
+
+def parse_rotation_optimization_args(
+    extra_args: List[str],
+    trainer_cls: Type[Trainer],
+    training_args_cls: Optional[Type[transformers.TrainingArguments]] = None
+) -> transformers.TrainingArguments:
+    """Parse *extra_args* into a training-arguments dataclass.
+
+    The training-arguments class is resolved with the following precedence:
+
+    1. *training_args_cls*, when explicitly provided.
+    2. ``trainer_cls.training_args_cls``, when a *trainer_cls* exposing that
+       attribute is provided.
+    3. the built-in :class:`TrainingArguments`.
+    """
+    if training_args_cls is None:
+        training_args_cls = getattr(trainer_cls, "training_args_cls", TrainingArguments)
+
+    parser = transformers.HfArgumentParser(training_args_cls)
     training_args = parser.parse_args_into_dataclasses(args=extra_args)
     # If a single-process is running, only one GPU should be available
     # for Trainer, to prevent using DataParallel, which was causing an
@@ -147,41 +118,102 @@ def _prepare_model(model: torch.nn.Module) -> torch.nn.Module:
     return model
 
 
-def apply_rotation_optimization(
+def apply_fine_tuning(
         model: torch.nn.Module,
         tokenizer: PreTrainedTokenizerBase,
         train_dataset: Dataset,
-        training_args: TrainingArguments,
-        collate_fn: Callable) -> None:
+        collate_fn: Callable,
+        trainer_cls: Optional[Type[Trainer]] = None,
+        extra_args: Optional[List[str]] = None) -> None:
+    """Fine-tune model weights and/or rotation matrices.
+
+    The training arguments are parsed from *extra_args* via
+    :func:`parse_rotation_optimization_args`, using
+    ``trainer_cls.training_args_cls`` when available. The optimizer(s) and
+    scheduler(s) are built from ``training_args.optimizer_scheduler_args``. When
+    that is ``None``:
+
+    * If trainable rotation matrices are found, :class:`RotationTrainer` is used
+      by default (CaileySGD on the rotations, via ``optimizer_scheduler_args``).
+    * Otherwise, ``(None, None)`` is passed to the Trainer so that it uses its
+      built-in optimizer (AdamW by default).
+
+    Parameters
+    ----------
+    model : torch.nn.Module
+        The model to fine-tune.
+    tokenizer : PreTrainedTokenizerBase
+        The tokenizer associated with the model.
+    train_dataset : Dataset
+        The training dataset.
+    collate_fn : callable
+        The data collator passed to the Trainer.
+    trainer_cls : Type[Trainer], optional
+        A custom Trainer class, typically resolved from ``TRAINER_REGISTRY``.
+        Its ``training_args_cls`` class attribute customises the training
+        arguments (including the optimizer/scheduler setup through
+        ``optimizer_scheduler_args``). When ``None`` (the default),
+        ``GeneralizedTrainer`` (or the built-in ``Trainer``) is used.
+    extra_args : list of str, optional
+        Raw CLI-style extra arguments parsed into the training-arguments
+        dataclass (see :func:`parse_rotation_optimization_args`).
+    """
+
+    # Resolve the trainer class up front so that its ``training_args_cls`` (which
+    # sets the ``optimizer_scheduler_args`` default) is used when parsing the
+    # training arguments. When no custom trainer is given but the model has
+    # trainable rotation matrices, default to RotationTrainer (CaileySGD on the
+    # rotations, expressed through the standard optimizer_scheduler_args mechanism).
+    if trainer_cls is None:
+        if len(extract_trainable_rotation_matrices(model)) == 0:
+            raise RuntimeError(
+                "No Custom Trainer has been defined and no optimizable rotations are present in the model."
+            )
+        trainer_cls = RotationTrainer
+    else:
+        trainer_cls = trainer_cls
+
+    # Parse the training arguments, resolving the training-args class from the
+    # (possibly defaulted) trainer.
+    training_args = parse_rotation_optimization_args(extra_args=extra_args, trainer_cls=trainer_cls)
 
     # Prepare model for training
     model = _prepare_model(model)
-    # Enable skipping optimization
+    # Enable skipping training
     if training_args.max_steps <= 0:
         return
-    # Remove hooks and empty cache before starting optimization
+    # Remove hooks and empty cache before starting training
     remove_hooks(model)
     torch.cuda.empty_cache()
-    # Set to False the model parameters
+    # Freeze all model parameters; individual param groups will be
+    # unfrozen by the optimizer-building helpers.
     for param in model.parameters():
         param.requires_grad = False
-    # Collect trainable matrices
-    trainable_rotations = extract_trainable_rotation_matrices(model)
-    for rot_mat in trainable_rotations:
-        rot_mat.requires_grad = True
-    optimizer = CaileySGD(
-        trainable_rotations,
-        lr=training_args.learning_rate,
-        stiefel=True,
-        dtype=training_args.optimizer_dtype)
-    trainer = GeneralizedTrainer(
+
+    # Build optimizer / scheduler pair from the training args.
+    if training_args.optimizer_scheduler_args is None:
+        raise RuntimeError("TrainingArguments needs to specify optimizer_scheduler_args")
+
+    # The optimizer-building helpers unfreeze the parameters of each
+    # selected param group.
+    optimizers = _build_optimizers_from_configs(model, training_args)
+
+    trainer_kwargs: Dict[str, Any] = dict(
         model=model,
         tokenizer=tokenizer,
         args=training_args,
         train_dataset=train_dataset,
         eval_dataset=None,
         data_collator=collate_fn,
-        optimizers=(optimizer, None))
+        optimizers=optimizers)
+
+    # Wire the teacher model whenever the selected trainer is a
+    # GeneralizedTrainer subclass and distillation loss is enabled.
+    if issubclass(trainer_cls, GeneralizedTrainer) and getattr(
+            training_args, 'use_distillation_loss', False):
+        trainer_kwargs["teacher_model"] = copy.deepcopy(model.cpu())
+
+    trainer = trainer_cls(**trainer_kwargs)
     trainer.train()
     # After finishing training, set eval mode again
     model.eval()

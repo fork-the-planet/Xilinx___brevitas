@@ -642,7 +642,8 @@ document.write(`
     <span class="k">return</span> <span class="n">value</span></div>
 
 
-<div class="viewcode-block" id="compute_max_mantissa"><a class="viewcode-back" href="../../../api_reference/brevitas.function.html#brevitas.function.ops.compute_max_mantissa">[docs]</a><span class="k">def</span><span class="w"> </span><span class="nf">compute_max_mantissa</span><span class="p">(</span><span class="n">mantissa_bit_width</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">):</span>
+<div class="viewcode-block" id="compute_max_mantissa"><a class="viewcode-back" href="../../../api_reference/brevitas.function.html#brevitas.function.ops.compute_max_mantissa">[docs]</a><span class="nd">@brevitas</span><span class="o">.</span><span class="n">jit</span><span class="o">.</span><span class="n">script</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">compute_max_mantissa</span><span class="p">(</span><span class="n">mantissa_bit_width</span><span class="p">:</span> <span class="n">Tensor</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Tensor</span><span class="p">:</span>
     <span class="k">return</span> <span class="mi">2</span> <span class="o">*</span> <span class="p">(</span><span class="mi">1</span> <span class="o">-</span> <span class="mi">2</span> <span class="o">**</span> <span class="p">(</span><span class="o">-</span><span class="n">mantissa_bit_width</span> <span class="o">-</span> <span class="mi">1</span><span class="p">))</span></div>
 
 

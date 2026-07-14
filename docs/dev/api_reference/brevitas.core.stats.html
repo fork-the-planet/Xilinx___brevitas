@@ -727,7 +727,7 @@ registered hooks while the latter silently ignores them.</p>
 
 <dl class="py class">
 <dt class="sig sig-object py" id="brevitas.core.stats.stats_op.MSE">
-<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">brevitas.core.stats.stats_op.</span></span><span class="sig-name descname"><span class="pre">MSE</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proxy_module</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mse_init_op</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inner_stats_input_view_shape_impl</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stats_reduce_dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mse_search_method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'fibonacci'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mse_iters</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">20</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">restrict_scale_positive</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">True</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/brevitas/core/stats/stats_op.html#MSE"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#brevitas.core.stats.stats_op.MSE" title="Permalink to this definition">#</a></dt>
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">brevitas.core.stats.stats_op.</span></span><span class="sig-name descname"><span class="pre">MSE</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">proxy_module</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mse_init_op</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">inner_stats_input_view_shape_impl</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mse_iters</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mse_base_op</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">stats_reduce_dim</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">mse_search_method</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">'fibonacci'</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">bipolar_search</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/brevitas/core/stats/stats_op.html#MSE"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#brevitas.core.stats.stats_op.MSE" title="Permalink to this definition">#</a></dt>
 <dd><p>Bases: <a class="reference external" href="https://docs.pytorch.org/docs/2.7/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a></p>
 <dl class="py method">
 <dt class="sig sig-object py" id="brevitas.core.stats.stats_op.MSE.evaluate_loss">
@@ -757,6 +757,27 @@ registered hooks while the latter silently ignores them.</p>
 <dt class="sig sig-object py" id="brevitas.core.stats.stats_op.MSE.mse_search">
 <span class="sig-name descname"><span class="pre">mse_search</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">x</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/brevitas/core/stats/stats_op.html#MSE.mse_search"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#brevitas.core.stats.stats_op.MSE.mse_search" title="Permalink to this definition">#</a></dt>
 <dd></dd></dl>
+
+</dd></dl>
+
+<dl class="py class">
+<dt class="sig sig-object py" id="brevitas.core.stats.stats_op.MSEUniformStepBase">
+<em class="property"><span class="pre">class</span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">brevitas.core.stats.stats_op.</span></span><span class="sig-name descname"><span class="pre">MSEUniformStepBase</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">mse_iters</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/brevitas/core/stats/stats_op.html#MSEUniformStepBase"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#brevitas.core.stats.stats_op.MSEUniformStepBase" title="Permalink to this definition">#</a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.pytorch.org/docs/2.7/generated/torch.nn.Module.html#torch.nn.Module" title="(in PyTorch v2.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code></a></p>
+<dl class="py method">
+<dt class="sig sig-object py" id="brevitas.core.stats.stats_op.MSEUniformStepBase.forward">
+<span class="sig-name descname"><span class="pre">forward</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">init</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/brevitas/core/stats/stats_op.html#MSEUniformStepBase.forward"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#brevitas.core.stats.stats_op.MSEUniformStepBase.forward" title="Permalink to this definition">#</a></dt>
+<dd><p>Define the computation performed at every call.</p>
+<p>Should be overridden by all subclasses.
+:rtype: <a class="reference external" href="https://docs.pytorch.org/docs/2.7/tensors.html#torch.Tensor" title="(in PyTorch v2.7)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Tensor</span></code></a></p>
+<div class="admonition note">
+<p class="admonition-title">Note</p>
+<p>Although the recipe for forward pass needs to be defined within
+this function, one should call the <code class="xref py py-class docutils literal notranslate"><span class="pre">Module</span></code> instance afterwards
+instead of this since the former takes care of running the
+registered hooks while the latter silently ignores them.</p>
+</div>
+</dd></dl>
 
 </dd></dl>
 
@@ -1049,6 +1070,10 @@ dimension dim to avoid NaNs from zero division.</p></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#brevitas.core.stats.stats_op.MSE.forward"><code class="docutils literal notranslate"><span class="pre">MSE.forward()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#brevitas.core.stats.stats_op.MSE.mse_loss_fn"><code class="docutils literal notranslate"><span class="pre">MSE.mse_loss_fn()</span></code></a></li>
 <li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#brevitas.core.stats.stats_op.MSE.mse_search"><code class="docutils literal notranslate"><span class="pre">MSE.mse_search()</span></code></a></li>
+</ul>
+</li>
+<li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#brevitas.core.stats.stats_op.MSEUniformStepBase"><code class="docutils literal notranslate"><span class="pre">MSEUniformStepBase</span></code></a><ul class="nav section-nav flex-column">
+<li class="toc-h4 nav-item toc-entry"><a class="reference internal nav-link" href="#brevitas.core.stats.stats_op.MSEUniformStepBase.forward"><code class="docutils literal notranslate"><span class="pre">MSEUniformStepBase.forward()</span></code></a></li>
 </ul>
 </li>
 <li class="toc-h3 nav-item toc-entry"><a class="reference internal nav-link" href="#brevitas.core.stats.stats_op.MeanLearnedSigmaStd"><code class="docutils literal notranslate"><span class="pre">MeanLearnedSigmaStd</span></code></a><ul class="nav section-nav flex-column">
